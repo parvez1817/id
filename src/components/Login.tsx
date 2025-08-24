@@ -17,6 +17,18 @@ interface LoginProps {
   onLogin: (registerNumber: string, historyData?: HistoryRequest[]) => void;
 }
 
+interface LoginResponse {
+  success: boolean;
+  message: string;
+  hasRejectedCard?: boolean;
+  rejectedCardData?: {
+    registerNumber: string;
+    name: string;
+    rejectionReason: string;
+    createdAt: string;
+  };
+}
+
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const { toast } = useToast();
   const [registerNumber, setRegisterNumber] = useState('');
@@ -33,26 +45,35 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ registerNumber }),
       });
-      const data = await response.json();
+      const data: LoginResponse = await response.json();
 
       if (data.success) {
-        // Fetch historical data from acchistoryid collection
-        try {
-          const historyResponse = await fetch(`http://localhost:5000/api/acchistoryid/user/${registerNumber}`);
-          const historyData = await historyResponse.json();
-          
+        if (data.hasRejectedCard && data.rejectedCardData) {
+          // Pass rejected card data to parent component
           toast({
             title: "Login Successful!",
             description: "Welcome to the ID Card Portal.",
           });
-          onLogin(registerNumber, historyData);
-        } catch (historyError) {
-          console.error('Error fetching historical data:', historyError);
-          toast({
-            title: "Login Successful!",
-            description: "Welcome to the ID Card Portal.",
-          });
-          onLogin(registerNumber, []);
+          onLogin(registerNumber, [], data.rejectedCardData);
+        } else {
+          // Fetch historical data from acchistoryid collection
+          try {
+            const historyResponse = await fetch(`http://localhost:5000/api/acchistoryid/user/${registerNumber}`);
+            const historyData = await historyResponse.json();
+            
+            toast({
+              title: "Login Successful!",
+              description: "Welcome to the ID Card Portal.",
+            });
+            onLogin(registerNumber, historyData);
+          } catch (historyError) {
+            console.error('Error fetching historical data:', historyError);
+            toast({
+              title: "Login Successful!",
+              description: "Welcome to the ID Card Portal.",
+            });
+            onLogin(registerNumber, []);
+          }
         }
       } else {
         toast({

@@ -9,6 +9,15 @@ interface DashboardProps {
   registerNumber: string | null;
   onLogin: (registerNumber: string, historyData?: HistoryRequest[]) => void;
   historyData: HistoryRequest[];
+  rejectedCardData?: RejectedCardData | null;
+  onRejectedCardDismiss?: () => void;
+}
+
+interface RejectedCardData {
+  registerNumber: string;
+  name: string;
+  rejectionReason: string;
+  createdAt: string;
 }
 
 interface StatusResponse {
@@ -37,7 +46,14 @@ interface TransferResponse {
   transferredCount: number;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ onLogout, registerNumber, onLogin, historyData }) => {
+const Dashboard: React.FC<DashboardProps> = ({ 
+  onLogout, 
+  registerNumber, 
+  onLogin, 
+  historyData, 
+  rejectedCardData, 
+  onRejectedCardDismiss 
+}) => {
   const [currentStep, setCurrentStep] = useState(0); // 0 = not started, 1 = submitted, 2 = under review, 3 = approved, 4 = ready
   const [isPrintingActive, setIsPrintingActive] = useState(false);
   const [isReadyForPickup, setIsReadyForPickup] = useState(false);
@@ -45,6 +61,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, registerNumber, onLogin
   const [buttonText, setButtonText] = useState('Submit Request');
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferMessage, setTransferMessage] = useState<string | null>(null);
+  const [showRejectedModal, setShowRejectedModal] = useState(false);
+  const [isTransferringRejected, setIsTransferringRejected] = useState(false);
+
+  // Show rejected modal when rejected card data is available
+  useEffect(() => {
+    if (rejectedCardData) {
+      setShowRejectedModal(true);
+    }
+  }, [rejectedCardData]);
 
   useEffect(() => {
     if (registerNumber) {
@@ -160,13 +185,109 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, registerNumber, onLogin
     }
   };
 
+  const handleRejectedCardOk = async () => {
+    if (!registerNumber || !rejectedCardData) return;
+
+    setIsTransferringRejected(true);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/rejectedidcards/transfer-to-history/${registerNumber}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data: TransferResponse = await response.json();
+
+      if (data.success) {
+        // Close modal and reset state
+        setShowRejectedModal(false);
+        if (onRejectedCardDismiss) {
+          onRejectedCardDismiss();
+        }
+        
+        // Reset dashboard to initial state
+        setCurrentStep(0);
+        setIsPrintingActive(false);
+        setIsReadyForPickup(false);
+        setFormEnabled(true);
+        setButtonText('Submit Request');
+        setTransferMessage(null);
+      } else {
+        console.error('Failed to transfer rejected card:', data.message);
+      }
+    } catch (error) {
+      console.error('Error transferring rejected card to history:', error);
+    } finally {
+      setIsTransferringRejected(false);
+    }
+  };
+
   // Determine if form should be disabled
-  const isFormDisabled = currentStep > 0;
+  const isFormDisabled = currentStep > 0 || showRejectedModal;
 
   return (
-    <div className="min-h-screen bg-blue-gradient flex">
+    <div className="min-h-screen bg-blue-gradient flex relative">
+      {/* Rejected Card Modal */}
+      {showRejectedModal && rejectedCardData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+          
+          {/* Modal */}
+          <div className="relative z-10 bg-white rounded-lg shadow-2xl p-8 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">ID Card Rejected</h2>
+              <p className="text-gray-600 mb-4">
+                Your ID card request has been rejected.
+              </p>
+              
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                <div className="text-left space-y-2">
+                  <div>
+                    <span className="font-medium text-gray-700">Name:</span>
+                    <span className="ml-2 text-gray-900">{rejectedCardData.name}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Register Number:</span>
+                    <span className="ml-2 text-gray-900">{rejectedCardData.registerNumber}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Rejection Reason:</span>
+                    <span className="ml-2 text-gray-900">{rejectedCardData.rejectionReason || 'No reason provided'}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Date:</span>
+                    <span className="ml-2 text-gray-900">{new Date(rejectedCardData.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <button
+                onClick={handleRejectedCardOk}
+                disabled={isTransferringRejected}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isTransferringRejected ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    <span>Processing...</span>
+                  </div>
+                ) : (
+                  'OK'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
-      <div className="flex-1">
+      <div className={`flex-1 ${showRejectedModal ? 'pointer-events-none' : ''}`}>
         <Navigation onLogout={onLogout} />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-8">

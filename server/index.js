@@ -116,7 +116,23 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Register number not found.' });
     }
 
-    return res.status(200).json({ success: true, message: 'Login successful.' });
+    // Check if the register number is in rejectedidcards collection
+    const rejectedCard = await RejectedIdCard.findOne({ registerNumber });
+    
+    if (rejectedCard) {
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Login successful.',
+        hasRejectedCard: true,
+        rejectedCardData: rejectedCard
+      });
+    }
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Login successful.',
+      hasRejectedCard: false
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: 'Server error.' });
@@ -358,6 +374,53 @@ app.post('/api/acceptedidcards/transfer-to-history/:registerNumber', async (req,
   } 
 }); 
  
+// ✅ Transfer rejected ID cards to history
+app.post('/api/rejectedidcards/transfer-to-history/:registerNumber', async (req, res) => {
+  try {
+    const registerNumber = req.params.registerNumber.trim();
+    console.log('Transferring rejected ID cards to history for register number:', registerNumber);
+
+    const rejectedCards = await RejectedIdCard.find({ registerNumber });
+    console.log('Found rejected ID cards to transfer:', rejectedCards);
+
+    if (rejectedCards.length === 0) {
+      return res.status(404).json({ success: false, message: 'No rejected ID cards found for this user.' });
+    }
+
+    const transferPromises = rejectedCards.map(async (card) => {
+      const historyRecord = new RejHistoryId({
+        registerNumber: card.registerNumber,
+        name: card.name,
+        dob: card.dob,
+        department: card.department,
+        year: card.year,
+        section: card.section,
+        libraryCode: card.libraryCode,
+        reason: card.reason,
+        rejectionReason: card.rejectionReason,
+        createdAt: card.createdAt,
+        sourceCollection: 'rejectedidcards'
+      });
+      
+      await historyRecord.save();
+      await RejectedIdCard.deleteOne({ _id: card._id });
+      return historyRecord;
+    });
+
+    const transferredRecords = await Promise.all(transferPromises);
+    console.log('Successfully transferred rejected records:', transferredRecords.length);
+
+    res.json({ 
+      success: true, 
+      message: `Successfully transferred ${transferredRecords.length} rejected ID cards to history.`,
+      transferredCount: transferredRecords.length
+    });
+  } catch (error) {
+    console.error('Error transferring rejected ID cards to history:', error);
+    res.status(500).json({ success: false, error: 'Server error during transfer' }); 
+  } 
+});
+
 // Start server 
 app.listen(PORT, () => { 
   console.log(`Server running on http://localhost:${PORT}`);
